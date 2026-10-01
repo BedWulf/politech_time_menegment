@@ -174,6 +174,27 @@ export function findUser(username: string, password: string): User | null {
   return users.find(u => u.username === username && u.password_hash === password) || null;
 }
 
+// ===== Audit Log =====
+export function addAuditLog(userId: string, action: string, entityType: string, entityId: string, oldValue?: string, newValue?: string): void {
+  const db = getDB();
+  db.audit_log.push({
+    id: generateId(),
+    user_id: userId,
+    action,
+    entity_type: entityType,
+    entity_id: entityId,
+    old_value: oldValue || '',
+    new_value: newValue || '',
+    created_at: new Date().toISOString(),
+  });
+  saveDB(db);
+}
+
+export function getAuditLog(limit: number = 50): AuditLog[] {
+  const db = getDB();
+  return [...db.audit_log].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, limit);
+}
+
 // ===== Export/Import =====
 export function exportToJSON(): string {
   return JSON.stringify(getDB(), null, 2);
@@ -183,8 +204,29 @@ export function exportToCSV(collection: keyof Database): string {
   const items = getDB()[collection] as any[];
   if (!items || items.length === 0) return '';
   const headers = Object.keys(items[0]);
-  const rows = items.map(item => headers.map(h => JSON.stringify(item[h] ?? '')).join(','));
+  const rows = items.map(item => headers.map(h => {
+    const val = item[h];
+    if (val === null || val === undefined) return '';
+    const str = String(val);
+    // Экранируем кавычки и оборачиваем если есть запятые
+    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+      return '"' + str.replace(/"/g, '""') + '"';
+    }
+    return str;
+  }).join(','));
   return [headers.join(','), ...rows].join('\n');
+}
+
+export function downloadCSV(collection: keyof Database, filename: string): void {
+  const csv = exportToCSV(collection);
+  if (!csv) return;
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' }); // BOM для Excel
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export function importFromJSON(json: string): boolean {
@@ -196,4 +238,36 @@ export function importFromJSON(json: string): boolean {
   } catch {
     return false;
   }
+}
+
+// Парсинг CSV строки
+export function parseCSV(text: string): Record<string, string>[] {
+  const lines = text.trim().split('\n');
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+  return lines.slice(1).map(line => {
+    const values: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (ch === ',' && !inQuotes) {
+        values.push(current.trim());
+        current = '';
+      } else {
+        current += ch;
+      }
+    }
+    values.push(current.trim());
+    const obj: Record<string, string> = {};
+    headers.forEach((h, idx) => { obj[h] = values[idx] || ''; });
+    return obj;
+  });
 }

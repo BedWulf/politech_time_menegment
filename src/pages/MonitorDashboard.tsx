@@ -66,6 +66,20 @@ export default function MonitorDashboard({ user, refresh }: Props) {
     refresh();
   };
 
+  const handleMarkAllPresent = (sessionId: string) => {
+    for (const student of groupStudents) {
+      const exemptions = getStudentExemptions(student.id);
+      const isRequired = isSessionRequiredForStudent(
+        groupSessions.find(s => s.id === sessionId)!,
+        student,
+        exemptions
+      );
+      if (isRequired) {
+        handleMarkStudent(sessionId, student.id, 'present');
+      }
+    }
+  };
+
   const tabs = [
     { key: 'students', label: '👥 Студенты группы' },
     { key: 'attendance', label: '📝 Посещаемость' },
@@ -155,10 +169,20 @@ export default function MonitorDashboard({ user, refresh }: Props) {
 
             return (
               <div key={session.id} className="bg-white rounded-lg shadow-sm p-4 mb-4">
-                <h4 className="font-semibold mb-3">
-                  {subject?.name} • {session.start_time}–{session.end_time}
-                  {session.status === 'cancelled' && <span className="ml-2 text-xs text-gray-400">(Отменена)</span>}
-                </h4>
+                <div className="flex justify-between items-center mb-3">
+                  <h4 className="font-semibold">
+                    {subject?.name} • {session.start_time}–{session.end_time}
+                    {session.status === 'cancelled' && <span className="ml-2 text-xs text-gray-400">(Отменена)</span>}
+                  </h4>
+                  {session.status !== 'cancelled' && (
+                    <button
+                      onClick={() => handleMarkAllPresent(session.id)}
+                      className="text-xs bg-green-100 text-green-700 px-3 py-1 rounded hover:bg-green-200"
+                    >
+                      ✓ Все присутствуют
+                    </button>
+                  )}
+                </div>
                 <div className="space-y-2">
                   {groupStudents.map(student => {
                     const exemptions = getStudentExemptions(student.id);
